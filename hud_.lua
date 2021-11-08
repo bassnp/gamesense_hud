@@ -870,7 +870,7 @@ local function draw_kill_feed(gap, accent, player)
 				surface.draw_text(mod_x + pad, text_y, attacker_color.r, attacker_color.g, attacker_color.b, line.alpha, feed_font, line.attacker)
 				if assist then 
 					surface.draw_text(mod_x + pad + attack_w + pad, text_y, 255, 255, 255, line.alpha, feed_font, " + ")
-					surface.draw_text(mod_x + pad + attack_w + pad + add_w, text_y, assister_color.r, assister_color.g, assister_color.b, line.alpha, feed_font, lline.assister)
+					surface.draw_text(mod_x + pad + attack_w + pad + add_w, text_y, assister_color.r, assister_color.g, assister_color.b, line.alpha, feed_font, line.assister)
 				end
 				surface.draw_text(mod_x + line_width - pad - victim_w - pad, text_y, victim_color.r, victim_color.g, victim_color.b, line.alpha, feed_font, line.victim)
 
