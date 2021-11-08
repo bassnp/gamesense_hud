@@ -48,6 +48,22 @@ end
 
 local hud_enable = ui.new_checkbox(mp[1], mp[2], "Simple Hud")
 local hud_offset = ui.new_slider(mp[1], mp[2], "Hud Offset", 10, 250, 50)
+
+local cross_gap     = ui.new_label(mp[1], mp[2], " ")
+local cross_enable  = ui.new_checkbox(mp[1], mp[2], "Crosshair")
+local crosshair = {
+	clr     = ui.new_color_picker(mp[1], mp[2], "  - Crosshair Color Picker", 255, 255, 255, 255),
+	tshape  = ui.new_checkbox(mp[1], mp[2],     "  - T-Shape"),
+	outline = ui.new_checkbox(mp[1], mp[2],     "  - Outline"),
+	out_clr = ui.new_color_picker(mp[1], mp[2], "  - Outline Color Picker", 0, 0, 0, 255),
+	dot     = ui.new_checkbox(mp[1], mp[2],     "  - Center Dot"),
+	dot_clr = ui.new_color_picker(mp[1], mp[2], "  - Center Dot Color Picker", 0, 0, 0, 255),
+	len     = ui.new_slider(mp[1], mp[2],       "  - Length", 1, 100, 5, true, "px"),
+	thic    = ui.new_slider(mp[1], mp[2],       "  - Thiccness", 1, 50, 5, true, "px"),
+	gap    = ui.new_slider(mp[1], mp[2],        "  - Gap",  1, 50, 5, true, "px"),
+}
+local cross_gap     = ui.new_label(mp[1], mp[2], " ")
+
 local hud_scheme = ui.new_combobox(mp[1], mp[2], "Color Scheme", { "Default CS:GO", "Custom" }, 1)
 
 local ct_color = {  94, 121, 174 }
@@ -87,8 +103,9 @@ local s = tonumber(ui_get(dpi_scale):sub(1, -2))/100
 
 local kill_list, chat_queue, ended_header, mvp_header = {}, {}, {}, {}
 
-local font_str = "DIN Mittelschrift"
-
+--local font_str = "DIN Mittelschrift"
+local font_str = "Calibri"
+local fo = 2
 --======================================= Functions =========================================--
 
 local function setTableVisibility(table, state) -- thx to whoever made this
@@ -158,6 +175,81 @@ local function char_to_keycode(char)
     return string.format("0x%02X", string.byte(string.upper(char)))
 end
 
+--------------------
+-- Credit: Bobby UI
+local function vmt_entry(instance, index, type)
+	return ffi.cast(type, (ffi.cast("void***", instance)[0])[index])
+end
+-- Credit: Bobby UI
+local function vmt_bind(module, interface, index, typestring)
+	local instance = client.create_interface(module, interface) or error("invalid interface")
+	local success, typeof = pcall(ffi.typeof, typestring)
+	if not success then
+		error(typeof, 2)
+	end
+	local fnptr = vmt_entry(instance, index, typeof) or error("invalid vtable")
+	return function(...)
+		return fnptr(instance, ...)
+	end
+end
+-- Credit: Bobby UI
+local get_event_data = vmt_bind("inputsystem.dll", "InputSystemVersion001", 21, "const struct {int m_nType, m_nTick, m_nData, m_nData2, m_nData3;}*(__thiscall*)(void*)")
+local button_code_to_string = vmt_bind("inputsystem.dll", "InputSystemVersion001", 40, "const char*(__thiscall*)(void*, int)")
+-- Credit: Bobby UI
+local event_types = {
+	[0] = "IE_ButtonPressed",
+	[1] = "IE_ButtonReleased",
+	[2] = "IE_ButtonDoubleClicked",
+	[203] = "IE_KeyCodeTyped",
+}
+--  Credit: Bobby UI | Slightly modified
+local last_tick, last_button, continues_button = 0, -1, -1
+local input_string, hit_exit_key = false, 0
+local function capture_key_input()
+    local event_data = get_event_data()
+
+    local etype = event_types[event_data.m_nType]
+    local pressed_key_char = nil
+    local pressed_key_int = nil
+
+    if etype == "IE_ButtonPressed" or etype == "IE_ButtonDoubleClicked" then
+        pressed_key_char = ffi.string(button_code_to_string(event_data.m_nData))
+        pressed_key_int = event_data.m_nData
+
+		if pressed_key_int == 70 or pressed_key_int == 64 then
+			hit_exit_key = pressed_key_int
+		end
+
+        if last_tick ~= event_data.m_nTick then
+            if pressed_key_int <= 36 and continues_button ~= 83 and continues_button ~= 84 then
+                input_string = input_string .. pressed_key_char
+            elseif pressed_key_int == 65 then
+                input_string = input_string .. " "
+            elseif pressed_key_int == 66 then
+                input_string = string.sub(input_string, 1, #input_string - 1)
+            end
+            last_button = pressed_key_int
+        end
+        last_tick = event_data.m_nTick
+    elseif etype == "IE_ButtonReleased" then
+        pressed_key_char = ""
+        pressed_key_int = event_data.m_nData
+    elseif etype == "IE_KeyCodeTyped" then
+        pressed_key_char = ffi.string(button_code_to_string(event_data.m_nData))
+        pressed_key_int = event_data.m_nData
+        if last_tick ~= event_data.m_nTick then
+            if pressed_key_int <= 36 then
+                input_string = input_string .. pressed_key_char
+            elseif pressed_key_int == 65 then
+                input_string = input_string .. " "
+            elseif pressed_key_int == 66 then
+                input_string = string.sub(input_string, 1, #input_string - 1)
+            end
+            continues_button = pressed_key_int
+        end
+    end
+end
+--------------------
 local function clamp(num, min, max)
 	if num < min then
 		num = min
@@ -167,14 +259,14 @@ local function clamp(num, min, max)
 	return num
 end
 
-local function fix_str(font, str)
+
+local function fix_str(font, str) -- completely useless, too lazy to take it out, might need to modify it for somethin else
 	local new_str = ""
+	local i_off = 0
 	for i = 1, #str do
-		local curr_char = string.sub(str, i, i)
+		local curr_char = string.sub(str, i + i_off, i + i_off)
 		local char_w, char_h = surface.get_text_size(font, curr_char)
-		if string.byte(curr_char) <= 128 then
-			new_str = new_str .. curr_char
-		end
+		new_str = new_str .. curr_char
 	end
 	return new_str
 end
@@ -189,12 +281,12 @@ local function return_overflow_table(line, font, max_width) -- for chat overflow
 		local loop_length = surface.get_text_size(font, string.sub(whole, offset, i))
 		if loop_length >= max_width then
 			local sub = string.sub(whole, offset, i - 1)
-			table.insert(overflow, (offset == 0 and { dead = line.dead, team = line.team, name = line.name, text = string.sub(sub, name_offset, #sub) } or sub))
+			table.insert(overflow, (offset == 0 and { tsay = line.tsay, dead = line.dead, team = line.team, name = line.name, text = string.sub(sub, name_offset, #sub) } or sub))
 			offset = i
 		end
 	end
 	local sub = string.sub(whole, offset, #whole)
-	table.insert(overflow, (offset == 0 and { dead = line.dead, team = line.team, name = line.name, text = string.sub(sub, name_offset, #sub) } or sub))
+	table.insert(overflow, (offset == 0 and { tsay = line.tsay, dead = line.dead, team = line.team, name = line.name, text = string.sub(sub, name_offset, #sub) } or sub))
 
 	return overflow
 end
@@ -267,35 +359,28 @@ local js = panorama.loadstring([[
     let _GetSpeakingPlayers = function() {
         let children = $.GetContextPanel().FindChildTraverse("VoicePanel").Children()
         let result = []
-
         children.forEach((panel) => {
             if(!panel.BHasClass("Hidden")) {
                 try {
                     let avatar = panel.GetChild(1).GetChild(1)
-
                     result.push(avatar.steamid)
                 } catch (err) {
                     // ignored
                 }
             }
         })
-
         if(result.length > 0) {
             let lookup = {}
             for(let i=1; i <= 64; i++) {
                 let xuid = GameStateAPI.GetPlayerXuidStringFromEntIndex(i)
-
                 if(xuid && xuid != "0")
                     lookup[xuid] = i
             }
-
             for(let i=0; i < result.length; i++)
                 result[i] = lookup[ result[i] ]
         }
-
         return result
     }
-
     return {
         get_speaking_players: _GetSpeakingPlayers
     }
@@ -369,7 +454,7 @@ local function draw_bar(x, y, w, h, value, c1, c2)
 	surface.draw_filled_gradient_rect(x, y, w, h, c1.r, c1.g, c1.b, 215, c2.r, c2.g, c2.b, 215, true)
 	surface.draw_filled_rect((x + w) - cover_width, y - 1, cover_width + 1, h + 2, 15, 15, 15, 255)
 
-	local font = surface.create_font(font_str, 25 * s, 100, {0x010}) -- 
+	local font = surface.create_font(font_str, (25 + fo) * s, 100, {0x010}) -- 
 	local o_w, o_h = surface.get_text_size(font, tostring(value))
 	surface.draw_text(x + w + (23 * s) - (o_w / 2), y + h / 2.1 - (o_h / 2), 195, 195, 195, 235, font, tostring(value))
 end
@@ -460,7 +545,7 @@ local function draw_health_and_equipment(gap, accent, player)
 			
 		draw_box(cash_x, cash_y, cash_w, n_h)
 
-		local font = surface.create_font(font_str, 25 * s, 1, {0x010}) -- 
+		local font = surface.create_font(font_str, (25 + fo) * s, 1, {0x010}) -- 
 		local o_w, o_h = surface.get_text_size(font, "$" .. tostring(round(ease_cash, 0)))
 
 		surface.draw_text(cash_x + cash_w - (b * s) - o_w, cash_y + (b * s), c_color[1], c_color[2], c_color[3], 255, font, "$" .. tostring(round(ease_cash, 0)))
@@ -632,7 +717,7 @@ local function draw_header(gap, accent, player)
 	local time_color = time_left.time <= 5 * d and accent.timer_end or accent.timer
 
 	--local header_font = surface.create_font("Trebuchet MS", 25 * s, 10, {0x010}) -- 
-	local header_font = surface.create_font(font_str, 26 * s, 1, {0x010})
+	local header_font = surface.create_font(font_str, (26 + fo) * s, 1, {0x010})
 	local o_w, o_h    = surface.get_text_size(header_font, tostring(time_left.clock))
 	surface.draw_text(x + (w / 2) - (o_w / 2), y + (h / 2) - (o_h / 2), time_color.r, time_color.g, time_color.b, 255, header_font, tostring(time_left.clock))
 
@@ -714,8 +799,8 @@ local function draw_header(gap, accent, player)
 		local image = ended_header.winner == 3 and ct_bot or t_bot
 		
 		local h_color = ended_header.winner == 3 and accent.ct or accent.t
-		local win_font = surface.create_font(font_str, 26 * s, 1, {0x010})
-		local sub_font = surface.create_font(font_str, 19 * s, 1, {0x010})
+		local win_font = surface.create_font(font_str, (26 + fo) * s, 1, {0x010})
+		local sub_font = surface.create_font(font_str, (19 + fo) * s, 1, {0x010})
 		local win_w, win_h = surface.get_text_size(win_font, ended_header.message)
 		local sub_w, sub_h = surface.get_text_size(win_font, "MVP : " .. mvp_header.name)
 
@@ -730,7 +815,7 @@ local function draw_header(gap, accent, player)
 		draw_box(end_x, end_y, end_w, end_h)
 
 		surface.draw_text((b * 2) + end_x + end_h, end_y + (b / 2), h_color.r, h_color.g, h_color.b, 255, win_font, ended_header.message)
-		surface.draw_text((b * 2) + end_x + end_h, end_y + b + win_h, 255, 255, 255, 215, sub_font, fix_str(sub_font, "MVP : " .. mvp_header.name))
+		surface.draw_text((b * 2) + end_x + end_h, end_y + b + win_h, 255, 255, 255, 215, sub_font, "MVP : " .. mvp_header.name)
 	end
 end
 
@@ -744,7 +829,7 @@ local penetrate_image = images.get_panorama_image("hud/deathnotice/penetrate.svg
 local function draw_kill_feed(gap, accent, player)
 	if #kill_list > 0 then
 		local pad = b * s
-		local feed_font = surface.create_font(font_str, 20 * s, 100, {0x010}) -- 
+		local feed_font = surface.create_font(font_str, (20 + fo) * s, 100, {0x010}) -- 
 		local local_player = entity.get_local_player()
 		local time = globals.curtime()
 		local x, y = screen_w - (10 * s) - gap, (10 * s) + gap
@@ -782,12 +867,12 @@ local function draw_kill_feed(gap, accent, player)
 				local xtra_color   = accent.feed_data
 
 				local text_y = mod_y + (text_h / 2) - pad
-				surface.draw_text(mod_x + pad, text_y, attacker_color.r, attacker_color.g, attacker_color.b, line.alpha, feed_font, fix_str(feed_font, line.attacker))
+				surface.draw_text(mod_x + pad, text_y, attacker_color.r, attacker_color.g, attacker_color.b, line.alpha, feed_font, line.attacker)
 				if assist then 
 					surface.draw_text(mod_x + pad + attack_w + pad, text_y, 255, 255, 255, line.alpha, feed_font, " + ")
-					surface.draw_text(mod_x + pad + attack_w + pad + add_w, text_y, assister_color.r, assister_color.g, assister_color.b, line.alpha, feed_font, fix_str(feed_font, line.assister))
+					surface.draw_text(mod_x + pad + attack_w + pad + add_w, text_y, assister_color.r, assister_color.g, assister_color.b, line.alpha, feed_font, lline.assister)
 				end
-				surface.draw_text(mod_x + line_width - pad - victim_w - pad, text_y, victim_color.r, victim_color.g, victim_color.b, line.alpha, feed_font, fix_str(feed_font, line.victim))
+				surface.draw_text(mod_x + line_width - pad - victim_w - pad, text_y, victim_color.r, victim_color.g, victim_color.b, line.alpha, feed_font, line.victim)
 
 				text_y = mod_y + pad
 
@@ -827,7 +912,7 @@ local function draw_spectating(gap, accent, player)
 		if steam_id ~= nil then
 			local avatar = steam_id == 0 and (entity.get_prop(player, "m_iTeamNum") == 3 and ct_bot or t_bot) or images.get_steam_avatar(steam_id)
 			if avatar ~= nil then
-				local t_font = surface.create_font(font_str, 29 * s, 1, {0x010, 0x200}) -- 
+				local t_font = surface.create_font(font_str, (29 + fo) * s, 1, {0x010, 0x200}) -- 
 				local t_w, t_h = surface.get_text_size(t_font, entity.get_player_name(player))
 				
 				local long_w = ava_r + t_w + (b * 4)
@@ -841,7 +926,7 @@ local function draw_spectating(gap, accent, player)
 
 				local mod_x, mod_y = x + ava_r + b_gap, y + t_h + b
 				local name_color = entity.get_prop(player, "m_iTeamNum") == 3 and accent.ct or accent.t
-				surface.draw_text(mod_x - b, y + b, name_color.r, name_color.g, name_color.b, 255, t_font, fix_str(t_font, entity.get_player_name(player)))
+				surface.draw_text(mod_x - b, y + b, name_color.r, name_color.g, name_color.b, 255, t_font, entity.get_player_name(player))
 
 				local player_resource = entity.get_player_resource()
 				local kills = entity.get_prop(player_resource, "m_iKills", player) 
@@ -849,7 +934,7 @@ local function draw_spectating(gap, accent, player)
 				local assists = entity.get_prop(player_resource, "m_iAssists", player)
 				local headshots = entity.get_prop(player_resource, "m_iMatchStats_HeadShotKills_Total", player)
 
-				local i_font = surface.create_font(font_str, 18 * s, 1, {0x010}) 
+				local i_font = surface.create_font(font_str, (18 + fo) * s, 1, {0x010}) 
 				local i_w, i_h = surface.get_text_size(i_font, "HEIGHT")
 				surface.draw_text(mod_x, mod_y, 185, 185, 185, 255, i_font, "Kills : " .. kills)
 				surface.draw_text(mod_x, mod_y + (i_h) + b, 185, 185, 185, 255, i_font, "Deaths : " .. deaths)
@@ -861,26 +946,27 @@ local function draw_spectating(gap, accent, player)
 	end
 end
 
-local chat_hide_time, last_chat_time, box_alpha, text_alpha, max_lines, clear_time, hid_time = 6.5, 0, 0, 0, 8, 5, 0
+local chat_hide_time, last_chat_time, box_alpha, text_alpha, max_lines, clear_time, hid_time, flash = 6.5, 0, 0, 0, 8, 5, 0, 0
 -- max chat char length is 245 chars
 local chat_input = false
 local function draw_chat(gap, accent, player)
+	---------------------------
 	local keycode = char_to_keycode(get_key_binding("messagemode"))
 	local is_down = client.key_state(keycode)
-	if is_down then
-		last_chat_time = globals.curtime()
+	if is_down and not chat_input then
+		chat_input = true
 	end
+	---------------------------
 
 	local max_h = (150 * s)
 	local line_h = 20 * s	
-
 	box_alpha = last_chat_time + chat_hide_time > globals.curtime() and box_alpha + 15 or box_alpha - 8
 	box_alpha = clamp(box_alpha, 0, 131)
 
 	text_alpha = last_chat_time + chat_hide_time > globals.curtime() and box_alpha + 30 or box_alpha - 16
 	text_alpha = clamp(text_alpha, 0, 255)
 
-	local c_font = surface.create_font(font_str, 21 * s, 1, {0x010}) 
+	local c_font = surface.create_font(font_str, (21 + fo) * s, 1, {0x010}) 
 	
 	local w, h = (screen_w / 4) * s, line_h
 	local x, y = gap, (screen_h - gap - (53 * s)) - ((53 * s) / 1.5) - h - (100 * s)
@@ -906,15 +992,15 @@ local function draw_chat(gap, accent, player)
 		draw_box(x, y, w, h, nil, box_alpha)
 		for i = 1, math.min(#chat_list, max_lines) do
 			local mod_x = x + b
-			local mod_y = y + h - (line_h * i)
+			local mod_y = y + h - (line_h * i) - (b / 3)
 			if type(chat_list[i]) == "table" then
 				local p_name = chat_list[i].name
-				local name_color = p_name == ((chat_list[i].dead and "*DEAD* " or "") .. entity.get_player_name(entity.get_local_player())) and accent.feed_local_name or (chat_list[i].team == 3 and accent.ct or accent.t)
-				surface.draw_text(mod_x, mod_y, name_color.r, name_color.g, name_color.b, text_alpha, c_font, fix_str(c_font, p_name))
+				local name_color = p_name == ((chat_list[i].dead and "*DEAD* " or "") .. (chat_list[i].tsay and "(TEAM) " or "") .. entity.get_player_name(entity.get_local_player())) and accent.feed_local_name or (chat_list[i].team == 3 and accent.ct or accent.t)
+				surface.draw_text(mod_x, mod_y, name_color.r, name_color.g, name_color.b, text_alpha, c_font, p_name)
 				local name_offset = {surface.get_text_size(c_font, p_name)}
-				surface.draw_text(mod_x + name_offset[1], mod_y, 255, 255, 255, text_alpha, c_font, " : " .. fix_str(c_font, chat_list[i].text))
+				surface.draw_text(mod_x + name_offset[1], mod_y, 255, 255, 255, text_alpha, c_font, " : " .. chat_list[i].text)
 			else
-				surface.draw_text(mod_x, mod_y, 255, 255, 255, text_alpha, c_font, fix_str(c_font, chat_list[i]))
+				surface.draw_text(mod_x, mod_y, 255, 255, 255, text_alpha, c_font, hat_list[i])
 			end
 		end
 	else
@@ -923,26 +1009,102 @@ local function draw_chat(gap, accent, player)
 		end
 	end
 
-	local speakers = get_speaking_players()
-	local max_chat = 4
-	for i = 1, (math.min(max_chat, #speakers)) do
-		local speaker = speakers[i]
-		if speaker ~= nil then
-			local mod_x = x + (math.floor((i - 1) / 2) * (w / 2.5))
-			local mod_y = y + h + b_gap + ((line_h + b_gap) * (i % 2 == 0 and 1 or 0))
-			draw_box(mod_x, mod_y, line_h, line_h)
-			
-			local steam_id = entity.get_steam64(speaker)
-			local avatar = steam_id == 0 and (entity.get_prop(speaker, "m_iTeamNum") == 3 and ct_bot or t_bot) or images.get_steam_avatar(steam_id)
-			if avatar ~= nil then
-				avatar:draw(mod_x, mod_y, line_h, line_h, 255, 255, 255, 255, true)
+	if chat_input then -- ready for chat input
+		last_chat_time = globals.curtime()
+		if hit_exit_key ~= 0 then -- 
+			chat_input = false
+			if hit_exit_key == 64 then
+				client.exec("say \"" .. string.sub(input_string, 2, #input_string) .. "\"")
 			end
+			hit_exit_key = 0	
+		end
+		local mod_y = y + h + (b * 2)
+		draw_box(x, mod_y, w, line_h)
 
-			local name_color = speaker == entity.get_local_player() and accent.feed_local_name or (entity.get_prop(speaker, "m_iTeamNum") == 3 and accent.ct or accent.t)
-			local s_font = surface.create_font(font_str, 21 * s, 1, {0x010, 0x200}) 
-			surface.draw_text(mod_x + line_h + (b * 2), mod_y, name_color.r, name_color.g, name_color.b, 205, s_font, fix_str(s_font, entity.get_player_name(speaker)))
+		local visual_str = string.sub(input_string, 2, #input_string)
+		local str_w, str_h = surface.get_text_size(c_font, visual_str)
+		if str_w >= w - b then
+			local measure_str = ""
+			for i = #visual_str, 1, -1 do
+				local this_w, this_h = surface.get_text_size(c_font, string.sub(visual_str, i, i) .. measure_str)
+				if this_w < w - b then
+					measure_str = string.sub(visual_str, i, i) .. measure_str
+				end
+			end
+			visual_str = measure_str
+		end
+		surface.draw_text(x + b, mod_y, 255, 255, 255, text_alpha, c_font, visual_str)
+		if flash + 0.5 <= globals.curtime() then
+			str_w, str_h = surface.get_text_size(c_font, visual_str)
+			surface.draw_filled_rect(x + b + str_w + b, mod_y + 2, 5 * s, line_h - 2, 255, 255, 255, 215)
+			if flash + 1 <= globals.curtime() then
+				flash = globals.curtime()
+			end
+		end
+	else
+		input_string = ""
+		local speakers = get_speaking_players()
+		local max_chat = 4
+		for i = 1, (math.min(max_chat, #speakers)) do
+			local speaker = speakers[i]
+			if speaker ~= nil then
+				local mod_x = x + (math.floor((i - 1) / 2) * (w / 2.5))
+				local mod_y = y + h + b_gap + ((line_h + b_gap) * (i % 2 == 0 and 1 or 0))
+				draw_box(mod_x, mod_y, line_h, line_h)
+				
+				local steam_id = entity.get_steam64(speaker)
+				local avatar = steam_id == 0 and (entity.get_prop(speaker, "m_iTeamNum") == 3 and ct_bot or t_bot) or images.get_steam_avatar(steam_id)
+				if avatar ~= nil then
+					avatar:draw(mod_x, mod_y, line_h, line_h, 255, 255, 255, 255, true)
+				end
+
+				local name_color = speaker == entity.get_local_player() and accent.feed_local_name or (entity.get_prop(speaker, "m_iTeamNum") == 3 and accent.ct or accent.t)
+				local s_font = surface.create_font(font_str, (21 + fo) * s, 1, {0x010, 0x200}) 
+				surface.draw_text(mod_x + line_h + (b * 2), mod_y, name_color.r, name_color.g, name_color.b, 205, s_font, entity.get_player_name(speaker))
+			end
 		end
 	end
+end
+
+local third_person, third_person_key = ui.reference('VISUALS', 'Effects', 'Force third person (alive)')
+local function draw_crosshair()
+	if ui.get(third_person) and ui.get(third_person_key) then return end
+
+	local cx, cy = screen_w / 2, screen_h / 2
+	local thicc, length, gapp, outline, t, dot = ui_get(crosshair.thic), ui_get(crosshair.len), ui_get(crosshair.gap), ui_get(crosshair.outline), ui_get(crosshair.tshape), ui_get(crosshair.dot)
+	local c_color, o_color, d_color = as_clr({ui_get(crosshair.clr)}), as_clr({ui_get(crosshair.out_clr)}), as_clr({ui_get(crosshair.dot_clr)})
+
+	local top_x, top_y = cx - (thicc / 2), cy - length - gapp
+	local bot_x, bot_y = cx - (thicc / 2), cy + gapp
+
+	local lef_x, lef_y = cx - length - gapp, cy - (thicc / 2)
+	local rig_x, rig_y = cx + gapp, cy - (thicc / 2)
+
+	if outline then
+		if not t then
+			surface.draw_outlined_rect(top_x - 1, top_y - 1, thicc + 2, length + 2, o_color.r, o_color.g, o_color.b, o_color.a)
+		end
+		surface.draw_outlined_rect(bot_x - 1, bot_y - 1, thicc + 2, length + 2, o_color.r, o_color.g, o_color.b, o_color.a)
+
+		surface.draw_outlined_rect(lef_x - 1, lef_y - 1, length + 2, thicc + 2, o_color.r, o_color.g, o_color.b, o_color.a)
+		surface.draw_outlined_rect(rig_x - 1, rig_y - 1, length + 2, thicc + 2, o_color.r, o_color.g, o_color.b, o_color.a)
+	end
+	
+	if dot then
+		if outline then
+			surface.draw_outlined_rect(cx - (thicc / 2) - 1, cy - (thicc / 2) - 1, thicc + 2, thicc + 2, o_color.r, o_color.g, o_color.b, o_color.a)
+		end
+		surface.draw_filled_rect(cx - (thicc / 2), cy - (thicc / 2), thicc, thicc, d_color.r, d_color.g, d_color.b, d_color.a)
+	end
+
+	if not t then
+		surface.draw_filled_rect(top_x, top_y, thicc, length, c_color.r, c_color.g, c_color.b, c_color.a)
+	end
+
+	surface.draw_filled_rect(bot_x, bot_y, thicc, length, c_color.r, c_color.g, c_color.b, c_color.a)
+
+	surface.draw_filled_rect(lef_x, lef_y, length, thicc, c_color.r, c_color.g, c_color.b, c_color.a)
+	surface.draw_filled_rect(rig_x, rig_y, length, thicc, c_color.r, c_color.g, c_color.b, c_color.a)
 end
 
 --====================================== Callbacks ==========================================--
@@ -984,7 +1146,10 @@ client.set_event_callback("paint", function() --> Main
 	if player ~= nil then	
 		draw_health_and_equipment(gap, accent, player)
 		draw_weapons(gap, accent, player)	
-		draw_spectating(gap, accent, player)	
+		draw_spectating(gap, accent, player)
+		if ui_get(cross_enable) and entity.get_prop(player, "m_bIsScoped") ~= 1 then
+			draw_crosshair()
+		end	
 	end
 
 	draw_kill_feed(gap, accent, player)	
@@ -992,22 +1157,64 @@ client.set_event_callback("paint", function() --> Main
 	draw_chat(gap, accent, player)
 end)
 
-client.set_event_callback("player_say", function(e) 
-	local ent = client.userid_to_entindex(e.userid)
+client.set_event_callback("predict_command", function()
+	if chat_input then
+    	capture_key_input()
+	end
+end)
+
+client.set_event_callback("player_chat", function(e) 
+	local ent = e.entity
 	if not GameStateAPI.IsSelectedPlayerMuted(steam_64(entity.get_steam64(ent))) then
 		last_chat_time = globals.curtime()
 		table.insert(chat_queue, 1,
 		{
 			time = globals.curtime(),
-			name = (not entity.is_alive(ent) and "*DEAD* " or "") .. entity.get_player_name(ent),
+			name = (not entity.is_alive(ent) and "*DEAD* " or "") .. (e.teamonly and "(TEAM) " or "")  .. entity.get_player_name(ent),
 			team = entity.get_prop(ent, "m_iTeamNum"),
 			dead = not entity.is_alive(ent),
+			tsay = e.teamonly,
 			text = e.text,
 		})
 
 		if #chat_queue > 20 then
 			table.remove(chat_queue, #chat_queue)
 		end
+	end
+end)
+
+-- LOOK AWAY, THIS IS EMBARRASING STOP LOOKING HOLY FUCK PLEASE LOOK AWAY
+client.set_event_callback("setup_command", function(e)
+	if chat_input then
+		e.in_jump = 0; e.in_duck = 0; e.in_forward = 0; e.in_back = 0; e.in_use = 0
+		e.in_cancel = 0; e.in_left = 0; e.in_right = 0; e.in_moveleft = 0; e.in_moveright = 0
+		e.in_attack = 0; e.in_attack2 = 0; e.in_run = 0; e.in_reload = 0
+-- LOOK AWAY, THIS IS EMBARRASING STOP LOOKING HOLY FUCK PLEASE LOOK AWAY
+		e.in_alt1 = 0; e.in_alt2 = 0; e.in_score = 0; e.forwardmove = 0; e.sidemove = 0
+		e.in_speed = 0; e.in_walk = 0; e.in_zoom = 0; e.in_weapon1 = 0; e.in_weapon2 = 0
+		e.in_bullrush = 0; e.in_grenade1 = 0; e.in_grenade2 = 0; e.in_attack3 = 0
+		e.weaponselect = 0; e.weaponsubtype = 0
+	end
+end)
+-- LOOK AWAY, THIS IS EMBARRASING STOP LOOKING HOLY FUCK PLEASE LOOK AWAY
+-- LOOK AWAY, THIS IS EMBARRASING STOP LOOKING HOLY FUCK PLEASE LOOK AWAY
+local cached_angles = {did = false, x = 0, y = 0, z = 0, pitch = 0, yaw = 0, fov = 0}
+client.set_event_callback("override_view", function(e)
+	if chat_input then
+		if not cached_angles.did then
+			cached_angles = {did = true, x = e.x, y = e.y, z = e.z, pitch = e.pitch, yaw = e.yaw, fov = e.fov}
+		end
+		-- LOOK AWAY, THIS IS EMBARRASING STOP LOOKING HOLY FUCK PLEASE LOOK AWAY
+		--e.x = cached_angles.x
+		--e.y = cached_angles.y
+		--e.z = cached_angles.z
+		e.pitch = cached_angles.pitch
+		e.yaw   = cached_angles.yaw
+		e.fov   = cached_angles.fov
+		-- LOOK AWAY, THIS IS EMBARRASING STOP LOOKING HOLY FUCK PLEASE LOOK AWAY
+		client.camera_angles(cached_angles.pitch, cached_angles.yaw)
+	else
+		cached_angles = {did = false, x = 0, y = 0, z = 0, pitch = 0, yaw = 0, fov = 0}
 	end
 end)
 
@@ -1049,7 +1256,7 @@ local old_status = false
 client.set_event_callback("paint_ui", function()
 	local connected = GameStateAPI.IsPlayerConnected(panorama.open().MyPersonaAPI.GetXuid())
 	if connected ~= old_status then
-		kill_list, ended_header, mvp_header, chat_queue, last_chat_time = {}, {}, {}, {}, globals.curtime()
+		kill_list, ended_header, mvp_header, chat_queue, last_chat_time = {}, {}, {}, {}, globals.curtime() - chat_hide_time
 	end
 	old_status = connected
 
@@ -1058,6 +1265,7 @@ client.set_event_callback("paint_ui", function()
 	radar:set_raw_int(1)
 
 	setTableVisibility({ hud_offset, hud_scheme }, enable)
+	setTableVisibility(crosshair, enable and ui_get(cross_enable))
 	setTableVisibility(clrs, (enable and ui_get(hud_scheme) == "Custom"))
 end)
 client.set_event_callback("shutdown", function()
