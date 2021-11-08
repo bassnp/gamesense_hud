@@ -1000,7 +1000,7 @@ local function draw_chat(gap, accent, player)
 				local name_offset = {surface.get_text_size(c_font, p_name)}
 				surface.draw_text(mod_x + name_offset[1], mod_y, 255, 255, 255, text_alpha, c_font, " : " .. chat_list[i].text)
 			else
-				surface.draw_text(mod_x, mod_y, 255, 255, 255, text_alpha, c_font, hat_list[i])
+				surface.draw_text(mod_x, mod_y, 255, 255, 255, text_alpha, c_font, chat_list[i])
 			end
 		end
 	else
